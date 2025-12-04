@@ -76,6 +76,7 @@ const bookflight = async (req, res) => {
         }
         res.status(200).json({ success: true, message: 'Reservation Booked Successfully', PNR: ticket_number })
     } catch (error) {
+      
         res.status(500).json({ success: false, message: 'Internal server error' + error.message })
     }
 };

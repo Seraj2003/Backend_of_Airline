@@ -5,7 +5,7 @@ const cookieParser = require('cookie-parser');
 const authRouter = require('./routers/authRouter.js')
 const userRouter = require('./routers/userRouter.js')
 const flightRouter = require('./routers/flightRouter.js');
-const CreatePayment= require("./routers/payment.js")
+const PaymentRoute= require("./routers/payment.js")
 const cors = require('cors')
 const bookingRouter = require('./routers/bookingRouter.js');
 const crewRouter = require('./routers/crewRouter.js')
@@ -33,7 +33,7 @@ app.use('/api/user', userRouter);
 app.use('/api/flight', flightRouter);
 // booking system
 
-app.use("/api/payment", CreatePayment)
+app.use("/api/payment", PaymentRoute)
 app.use('/api/booking', bookingRouter);
 //crew 
 app.use('/crew', crewRouter);

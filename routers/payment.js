@@ -1,31 +1,56 @@
-const Stripe = require("stripe")
-const express = require('express')
-const dotenv = require ( "dotenv");
+const express = require('express');
+const Razorpay = require('razorpay');
+const crypto = require("crypto");
 
-dotenv.config();
+require('dotenv').config();
 const router = express.Router();
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+// Initialize Razorpay instance with key ID and secret from environment variables
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
+// Route to create a new payment order
+router.post('/create-order', async (req, res) => {
+  const { amount, currency, receipt } = req.body;
+  console.log(process.env.RAZORPAY_KEY_ID);
+  console.log();
 
-// Create PaymentIntent
-router.post("/create-payment-intent", async (req, res) => {
+  const options = {
+    amount: amount, // Amount in smallest currency unit
+    currency: currency || 'INR',
+    receipt: receipt || `receipt_${Date.now()}`,
+  };
   try {
-    const { amount } = req.body; // amount in paise for INR (₹1 = 100 paise)
+    const order = await razorpay.orders.create(options);
+    console.log(order);
+    res.status(201).json({ order });
 
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: amount,
-      currency: "inr",
-      automatic_payment_methods: {
-        enabled: true,
-      },
-    });
-
-    res.send({
-      clientSecret: paymentIntent.client_secret,
-    });
   } catch (error) {
-    console.error("Stripe error:", error);
-    res.status(500).json({ message: "Payment failed", error });
+    console.log(error);
+    res.status(500).json({ error: 'Failed to create order', details: error.message });
+  }
+});
+
+router.post("/verify", async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    const sign = razorpay_order_id + "|" + razorpay_payment_id;
+
+    const expectedSign = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(sign)
+      .digest("hex");
+
+    if (expectedSign === razorpay_signature) {
+      return res.json({ success: true, message: "Payment verified" });
+    } else {
+      return res.json({ success: false, message: "Payment verification failed" });
+    }
+
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
