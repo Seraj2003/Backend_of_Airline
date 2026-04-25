@@ -1,9 +1,11 @@
 const express = require ('express');
-const { bookflight , ticketView ,cancel, verifyCancelation, myBookings} = require('../controllers/bookingController.js');
+const { reserveFlight, confirmFlight , ticketView ,cancel, verifyCancelation, myBookings} = require('../controllers/bookingController.js');
 const verifyToken = require('../middlewares/jwtVerification.js');
 const router = express.Router()
 
-router.post('/book', verifyToken, bookflight);
+
+router.post('/reserve', verifyToken, reserveFlight);
+router.post('/confirm', verifyToken, confirmFlight);
 //ticket view 
 router.post('/ticket/detail',ticketView);
 router.get('/myBookings',verifyToken,myBookings)

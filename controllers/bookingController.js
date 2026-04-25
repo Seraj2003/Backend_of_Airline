@@ -1,85 +1,167 @@
 const db = require("../config/db");
 const transporter = require("../config/nodemailer.js");
 // booking
-const bookflight = async (req, res) => {
+const reserveFlight = async (req, res) => {
     const id = req.user.user_id;
-    if (!id) return res.json({ success: false, message: 'user not login' });
-    const { passengerName, age, passengerEmail, jurneyDate, address, flght_no, flightClass , airline } = req.body;
-    if (!passengerName || !passengerEmail || !address || !age || !jurneyDate || !flght_no || !flightClass || !airline) {
-        return res.status(404).json({ success: false, message: 'Missing details' })
-    }
+    if (!id) return res.json({ success: false, message: 'User not logged in' });
 
-    // generating ticket number
-    function GenerateTicketNumber() {
-        return Math.floor(100000 + Math.random() * 900000).toString();
+    const { passengerName, age, passengerEmail, jurneyDate, address, flight_no, flightClass, airline } = req.body;
+
+    if (!passengerName || !passengerEmail || !address || !age || !jurneyDate || !flight_no || !flightClass || !airline) {
+        return res.status(400).json({ success: false, message: 'Missing details' });
     }
 
     try {
-        // checking seat availability
-        const [flights] = await db.query("SELECT * FROM flights where flight_no = ?", [flght_no])
-        if (!flights || flights.length === 0) {
-            return res.status(401).json({ success: false, message: 'Flight Not Available' })
+        // Get flight
+        const [flights] = await db.query("SELECT * FROM flights WHERE flight_no = ?", [flight_no]);
+        if (!flights.length) {
+            return res.status(404).json({ success: false, message: 'Flight Not Available' });
         }
+
         const flight = flights[0];
 
-        // check seat availability
+        // Seat availability
         let SeatAvailbility = 0;
-        let bookedSeat = 0;
-        if (flightClass == 'economy') {
-            SeatAvailbility = flight.total_seats_economy - flight.booked_seats_economy;
-            bookedSeat = flight.booked_seats_economy;
-        }
-        else if (flightClass === 'business') {
-            SeatAvailbility = flight.total_seats_business - flight.booked_seats_business;
-            bookedSeat = flight.booked_seats_business;
-        }
-        else if (flightClass === 'first') {
-            SeatAvailbility = flight.total_seats_first - flight.booked_seats_first;
-            bookedSeat = flight.booked_seats_first;
-        }
-        else {
-            return res.status(404).json({ success: false, message: 'Invalid Class' })
-        }
+        if (flightClass === 'economy') SeatAvailbility = flight.total_seats_economy - flight.booked_seats_economy;
+        if (flightClass === 'business') SeatAvailbility = flight.total_seats_business - flight.booked_seats_business;
+        if (flightClass === 'first') SeatAvailbility = flight.total_seats_first - flight.booked_seats_first;
+
         if (SeatAvailbility <= 0) {
-            return res.status(404).json({ success: false, message: 'No Seats Available in ' + flightClass + ' Class' })
+            console.log('No seats available');
+            return res.status(400).json({ success: false, message: 'No seats available' });
         }
-        const ticket_number = GenerateTicketNumber();
-        const connection = await db.getConnection();
+        const formatedDate = new Date(jurneyDate).toISOString().slice(0, 19).replace("T", " ")
 
-        try {
-            await connection.beginTransaction()
-            const query = 'INSERT INTO bookings (user_id, flight_no, flight_id, seat_no, passenger_name, age,address , email, class , airline , PNR) VALUES (?, ?, ?, ?, ?, ?, ?,? , ?,? ,?)'
-            const bookResult = await db.query(query, [
-                id,             // user_id INT
-                flght_no,       // flight_no VARCHAR
-                flight.flight_id,       // flight_id INT
-                bookedSeat + 1,         // seat_no INT or VARCHAR
-                passengerName,  // passenger_name VARCHAR
-                parseInt(age),
-                address,  // age INT
-                passengerEmail, // email VARCHAR
-                flightClass  ,// class VARCHAR
-                airline ,
-                ticket_number  // eg . indiGo , Air india etc
-            ]);
-            if (bookResult[0].affectedRows === 0) return res.status(303).json({ success: false, message: "Booking Failed" })
-            // update booked seats
-            await db.query(`update flights set booked_seats_${flightClass} = ? where flight_no = ?  `, [bookedSeat + 1, flght_no]);
 
-            await db.query(`INSERT INTO TICKETS (booking_id, PNR,flight_no ,source, destination, journey_date, seat_no, class , airline) values (?, ?, ?, ?, ?, ?, ?,? ,?)`, [bookResult[0].insertId, ticket_number, flght_no, flight.source, flight.destination, jurneyDate, bookedSeat + 1, flightClass, airline])
+        // Reserve entry (pending status)
+        const query = `
+            INSERT INTO bookings (user_id, flight_no, flight_id, passenger_name, age, address, email, class, airline, journeyDate,status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
+        `;
 
-            await connection.commit();
+        const [result] = await db.query(query, [
+            id,
+            flight_no,
+            flight.flight_id,
+            passengerName,
+            parseInt(age),
+            address,
+            passengerEmail,
+            flightClass,
+            airline,
+            formatedDate,
+            "pending"
+        ]);
 
-        } catch (Err) {
-            await connection.rollback();
-            throw Err;
-        }
-        res.status(200).json({ success: true, message: 'Reservation Booked Successfully', PNR: ticket_number })
+        return res.status(200).json({
+            success: true,
+            message: "Seat reserved. Complete payment to confirm.",
+            reservation_id: result.insertId
+        });
+
     } catch (error) {
-      
-        res.status(500).json({ success: false, message: 'Internal server error' + error.message })
+        console.log(error)
+        return res.status(500).json({ success: false, message: 'Internal server error: ' + error.message });
     }
 };
+
+
+//confirmed reservation
+
+const confirmFlight = async (req, res) => {
+    const { reservation_id, payment_id } = req.body;
+
+    if (!reservation_id) {
+        return res.status(400).json({ success: false, message: "Missing reservation ID" });
+    }
+
+    try {
+        const [rows] = await db.query("SELECT * FROM bookings WHERE booking_id = ?", [reservation_id]);
+        if (!rows.length) return res.status(404).json({ success: false, message: "Reservation not found" });
+
+        const booking = rows[0];
+
+        if (booking.status === "confirmed") {
+            return res.status(200).json({ success: true, message: "Already confirmed", PNR: booking.PNR });
+        }
+
+        // Fetch flight details
+        const [flightData] = await db.query("SELECT * FROM flights WHERE flight_no = ?", [booking.flight_no]);
+        const flight = flightData[0];
+
+        // Generate PNR
+        const PNR = Math.floor(100000 + Math.random() * 900000).toString();
+
+        let bookedSeat = 0;
+        let seatColumn = "";
+
+        if (booking.class === "economy") {
+            bookedSeat = flight.booked_seats_economy + 1;
+            seatColumn = "booked_seats_economy";
+        } else if (booking.class === "business") {
+            bookedSeat = flight.booked_seats_business + 1;
+            seatColumn = "booked_seats_business";
+        } else {
+            bookedSeat = flight.booked_seats_first + 1;
+            seatColumn = "booked_seats_first";
+        }
+        const formattedFinalDate = new Date(booking.journeyDate)
+            .toISOString()
+            .slice(0, 19) // removes .000Z
+            .replace("T", " ");
+
+
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            // Mark confirmed
+            await db.query(
+                "UPDATE bookings SET status = ?, PNR = ?, seat_no = ?, payment_id = ? WHERE booking_id = ?",
+                ["confirmed", PNR, bookedSeat, payment_id ?? null, reservation_id]
+            );
+
+            // Update flight seats
+            await db.query(
+                `UPDATE flights SET ${seatColumn} = ? WHERE flight_no = ?`,
+                [bookedSeat, booking.flight_no]
+            );
+
+            // Insert ticket
+            await db.query(
+                `INSERT INTO tickets (booking_id, PNR, flight_no, source, destination, journey_date, seat_no, class, airline)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    reservation_id,
+                    PNR,
+                    flight.flight_no,
+                    flight.source,
+                    flight.destination,
+                    formattedFinalDate,
+                    bookedSeat,
+                    booking.class,
+                    booking.airline
+                ]
+            );
+
+            await connection.commit();
+        } catch (err) {
+            await connection.rollback();
+            throw err;
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Ticket confirmed successfully",
+            PNR
+        });
+
+    } catch (error) {
+        console.log(error)
+        return res.status(500).json({ success: false, message: "Error: " + error.message });
+    }
+};
+
 // ticket details
 const ticketView = async (req, res) => {
     const { PNR } = req.body;
@@ -99,7 +181,7 @@ const ticketView = async (req, res) => {
             ticket: ticket[0]
         })
     } catch (error) {
-        
+
         res.status(500).json({ success: false, message: 'Internal server error' + error })
     }
 }
@@ -178,4 +260,4 @@ const verifyCancelation = async (req, res) => {
         res.status(500).json({ success: false, message: 'Internal server error' + error })
     }
 }
-module.exports = { bookflight, myBookings, ticketView, cancel, verifyCancelation }
+module.exports = { reserveFlight, confirmFlight, myBookings, ticketView, cancel, verifyCancelation }

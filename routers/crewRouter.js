@@ -1,12 +1,13 @@
 const express = require('express');
 const verifyToken = require('../middlewares/jwtVerification.js');
-const { addNewCrewMember , login, schedule } = require('../controllers/crewController.js');
+const { getAllCrewMembers, addNewCrewMember, login, assignCrewToFlight } = require('../controllers/crewController.js');
 const router = express.Router();
 
 
 
-router.post('/assign' , verifyToken, addNewCrewMember )
-router.post('/login',login);
-router.get('/schedule',verifyToken,schedule)
+router.post('/assign', verifyToken, addNewCrewMember)
+router.post('/login', login);
+router.post('/schedule', assignCrewToFlight)
 
-module.exports=router;
+router.get('/all' /*, verifyToken */, getAllCrewMembers);
+module.exports = router;

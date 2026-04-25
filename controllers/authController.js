@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken')
 const db = require('../config/db.js');
-const transporter = require('../config/nodemailer.js')
+const emailQueue = require('../queue/emailQueue.js');
 
 // console.log(process.env.SECRET)
 const register = async (req, res) => {
@@ -22,7 +22,7 @@ const register = async (req, res) => {
         //     process.env.SECRET,                                           // must exist
         //     { expiresIn: '1d' }                                           // valid 1 day
         // );
-
+        await emailQueue.add("WelcomeEmail", { name, email },{removeOnComplete:true})
         res.status(200).json({ success: true, message: 'User Register Successfully', })
     } catch (error) {
         console.log(error)
@@ -59,6 +59,7 @@ const login = async (req, res) => {
             sameSite: 'lax',  // CSRF protection
             maxAge: 3600000
         })
+
         res.status(200).json({ success: true, message: 'Login Successfully', user: safeUser })
     } catch (error) {
         console.log(error)
@@ -70,25 +71,25 @@ const login = async (req, res) => {
 
 // Logout Controller
 const logoutUser = async (req, res) => {
-  try {
-    // Clear the cookie where JWT was stored
-    res.clearCookie("token", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // only over HTTPS in production
-      sameSite: "strict",
-    });
+    try {
+        // Clear the cookie where JWT was stored
+        res.clearCookie("token", {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production", // only over HTTPS in production
+            sameSite: "strict",
+        });
 
-    return res.status(200).json({ message: "Logout successful" });
-  } catch (error) {
-    console.error("Logout error:", error);
-    res.status(500).json({ message: "Server error during logout" });
-  }
+        return res.status(200).json({ message: "Logout successful" });
+    } catch (error) {
+        console.error("Logout error:", error);
+        res.status(500).json({ message: "Server error during logout" });
+    }
 };
 
 //reset password
 const forgatePass = async (req, res) => {
     const { email } = req.body;
-    if (!email) return res.status(4040).json({ success: false, message: 'missing details' });
+    if (!email) return res.status(400).json({ success: false, message: 'missing details' });
     try {
         const users = await db.query('Select * from users where email = ? ', [email])
         const [user] = users[0]
@@ -100,16 +101,20 @@ const forgatePass = async (req, res) => {
         //     process.env.SECRET,                                           // must exist
         //     { expiresIn: '1d' }                                           // valid 1 day
         // );
-        await transporter.sendMail({
-            from: ` "AirlLine" ${process.env.EMAIL_USER} `,
-            to: email,
-            subject: 'OTP Verification',
-            html: `<h2> Hi ${email}, <br> Your OTP code is ${otp}. It is valid for 5 minutes.</h2>`
-        })
+        // await transporter.sendMail({
+        //     from: ` "AirlLine" ${process.env.EMAIL_USER} `,
+        //     to: email,
+        //     subject: 'OTP Verification',
+        //     html: `<h2> Hi ${email}, <br> Your OTP code is ${otp}. It is valid for 5 minutes.</h2>`
+        // })
+
+        // emailQueue job adding
+        await emailQueue.add("sendOtp", { email, otp }, { removeOnComplete: true });
+
         const expiryDate = new Date(Date.now() + 5 * 60 * 1000);
         const mysqlexpiry = expiryDate.toISOString().slice(0, 19).replace('T', ' ');
         await db.query('UPDATE users SET reset_otp = ?, reset_otp_expiry = ?  WHERE email = ? ', [otp, mysqlexpiry, email])
-        res.status(200).json({ success: true, message: 'OTP Send Successfully', otp})
+        res.status(200).json({ success: true, message: 'OTP Send Successfully', otp })
     } catch (error) {
         console.log(error)
         res.status(500).json({ success: false, message: 'Internal servver error' + error })
@@ -156,4 +161,4 @@ const changePass = async (req, res) => {
         res.status(500).json({ success: false, message: 'Internal server error' + error })
     }
 }
-module.exports = { register, login, forgatePass, verifyOTP, changePass ,logoutUser }
+module.exports = { register, login, forgatePass, verifyOTP, changePass, logoutUser }

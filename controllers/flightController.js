@@ -1,13 +1,22 @@
-const db = require('../config/db.js')
+const { json } = require('body-parser');
+const db = require('../config/db.js');
+const { setCache, getCache } = require("../services/redisService.js")
 const getFlight = async (req, res) => {
-    const { source, destination, jurneyDate } = req.body;
-    if (!source || !destination || !jurneyDate) {
+  const { source, destination, jurneyDate } = req.body;
+  if (!source || !destination || !jurneyDate) {
 
-        return res.status(404).json({ success: false, message: 'Source, destination, and date are required' })
+    return res.status(404).json({ success: false, message: 'Source, destination, and date are required' })
+  }
+  try {
+    const cached = await getCache(`flights:${source}:${destination}:${jurneyDate}`)
+    if (cached) {
+      console.log("CACHE HIT (Redis)");
+      return res.status(400).json({ data: cached });
+
     }
-    try {
-        const flights = await db.query(
-            `SELECT 
+    console.log("CACHE MISS (Database)");
+    const flights = await db.query(
+      `SELECT 
          flight_id,
          airline,
       flight_no, 
@@ -30,24 +39,24 @@ const getFlight = async (req, res) => {
      AND destination = ? 
     AND DATE(departure_time) = ? 
    `,
-            [source, destination, jurneyDate]
-        );
+      [source, destination, jurneyDate]
+    );
 
-        const flight = flights[0]
+    const flight = flights[0]
 
-        if (flight.length <= 0) return res.status(404).json({ success: false, message: "No flights found for the selected route and date" })
-
-        res.status(200).json({ data: flight })
-    } catch (error) {
-        console.log(error)
-        res.status(500).json({ success: false, message: 'Internal server error' })
-    }
+    if (flight.length <= 0) return res.status(404).json({ success: false, message: "No flights found for the selected route and date" })
+    await setCache(`flights:${source}:${destination}:${jurneyDate}`, flight);
+    res.status(200).json({ data: flight })
+  } catch (error) {
+    console.log(error)
+    res.status(500).json({ success: false, message: 'Internal server error' })
+  }
 }
 const getflightDetailByNo = async (req, res) => {
-    const flight_no = req.body.flight_no;
-    if (!flight_no) return res.status(401).json({ success: false, message: 'flight no is required' })
-    try {
-        const [flight] = await db.query(`SELECT flight_no, source, destination,
+  const flight_no = req.body.flight_no;
+  if (!flight_no) return res.status(401).json({ success: false, message: 'flight no is required' })
+  try {
+    const [flight] = await db.query(`SELECT flight_no, source, destination,
                 DATE_FORMAT(departure_time, '%Y-%m-%d') AS departure_date,
                 DATE_FORMAT(arrival_time, '%Y-%m-%d') AS arrival_date,
                 TIME_FORMAT(departure_time, '%H:%i') AS departure_time,
@@ -67,13 +76,41 @@ const getflightDetailByNo = async (req, res) => {
 
          FROM flights 
          WHERE flight_no = ?`,
-            [flight_no])
-        // console.log(flight[0])
-        if (!flight || flight.length === 0) return res.status(402).json({ success: false, message: "Not Found" })
-        res.status(200).json({ success: true, data: flight[0] })
-    } catch (error) {
-        console.log(error)
-        res.status(500).json({ success: false, message: 'Internal server error' + error })
-    }
+      [flight_no])
+    // console.log(flight[0])
+    if (!flight || flight.length === 0) return res.status(402).json({ success: false, message: "Not Found" })
+    res.status(200).json({ success: true, data: flight[0] })
+  } catch (error) {
+    console.log(error)
+    res.status(500).json({ success: false, message: 'Internal server error' + error })
+  }
 }
-module.exports = { getFlight, getflightDetailByNo }
+
+const getAllFlights = async (req, res) => {
+  try {
+    const [flights] = await db.query(
+      `SELECT 
+         flight_id,
+         flight_no,
+         departure_time,
+         arrival_time,
+         airline,
+         status
+       FROM flights
+       ORDER BY departure_time DESC`
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: flights
+    });
+
+  } catch (error) {
+    console.error("Get Flights Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch flights"
+    });
+  }
+};
+module.exports = { getFlight, getAllFlights, getflightDetailByNo }

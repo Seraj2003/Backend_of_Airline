@@ -14,7 +14,7 @@ const razorpay = new Razorpay({
 router.post('/create-order', async (req, res) => {
   const { amount, currency, receipt } = req.body;
   console.log(process.env.RAZORPAY_KEY_ID);
-  console.log();
+ 
 
   const options = {
     amount: amount, // Amount in smallest currency unit

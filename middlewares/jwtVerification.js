@@ -1,9 +1,9 @@
-const jwt = require('jsonwebtoken');
+const jwt = require("jsonwebtoken")
 
 function verifyToken(req, res, next) {
   try {
     // Get token from cookies (not usually in Bearer format)
-    const token = req.cookies.token;
+    const token = req.headers.authorization?.split(' ')[1] || req.cookies.token;
 
     if (!token) {
       return res.status(401).json({ message: "Token required" });
@@ -15,8 +15,16 @@ function verifyToken(req, res, next) {
 
     next();
   } catch (err) {
+
+    console.log(err)
     return res.status(403).json({ message: "Invalid or expired token" });
   }
 }
+
+
+
+
+
+
 
 module.exports = verifyToken;
